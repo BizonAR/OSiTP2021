@@ -15,9 +15,10 @@ static kernel_pid_t thread_two_pid;
 
 static msg_t rcv_queue[8];
 
+//static xtimer_ticks32_t last_wakeup_two;
 
 int count = 1;
-int count2 = 1;
+int count2 = 0;
 
 // Обработчик прерывания с кнопки
 void btn_handler(void *arg)
@@ -26,9 +27,11 @@ void btn_handler(void *arg)
   (void)arg;
   // Создание объекта для хранения сообщения
   msg_t msg;
+  static uint64_t last_wakeup_two;
+  int per = 10;
   // Поскольку прерывание вызывается и на фронте, и на спаде, нам нужно выяснить, что именно вызвало обработчик
   // для этого читаем значение пина с кнопкой. Если прочитали высокое состояние - то это был фронт.  
-  if (gpio_read(GPIO_PIN(PORT_A,0)) > 0)
+  if (gpio_read(GPIO_PIN(PORT_A,0)) > 0 && (xtimer_now_usec64() - last_wakeup_two) > 100000)
   {
     // Отправка сообщения в тред по его PID
     // Сообщение остается пустым, поскольку нам сейчас важен только сам факт его наличия, и данные мы не передаем
@@ -38,14 +41,19 @@ void btn_handler(void *arg)
     else count = 1;
     msg_send(&msg, thread_one_pid); 
   }
-  if ((gpio_read(GPIO_PIN(PORT_A,0)) <= 0))
+  if ((gpio_read(GPIO_PIN(PORT_A,0)) <= 0) && (xtimer_now_usec64() - last_wakeup_two) > 100000)
   {
-    if (count2 < 10)
+    msg.content.value = count2;
+    if (count2 < 3)
       count2++;
     else count2 = 1;
-
+    if (per > 0)
+      per -= count2 * 4;
+    else per = 10;
+    msg.content.value = per;
+    msg_send(&msg, thread_two_pid); 
   }
-  xtimer_usleep(100000); 
+  last_wakeup_two = xtimer_now_usec64();
 }
 
 // Первый поток
@@ -55,13 +63,12 @@ void *thread_one(void *arg)
   (void) arg;
   // Создание объекта для хранения сообщения 
   msg_t msg;
-  msg_init_queue(rcv_queue, 8);
   // Инициализация пина PC8 на выход
   gpio_init(GPIO_PIN(PORT_C,8),GPIO_OUT);
   while(1){
     // Ждем, пока придет сообщение
     // msg_receive - это блокирующая операция, поэтому задача зависнет в этом месте, пока не придет сообщение
-  	msg_receive(&msg);
+    msg_receive(&msg);
     int j = msg.content.value;
     // Переключаем светодиод
     for (int i = 0;i < j * 2; ++i)
@@ -77,25 +84,33 @@ void *thread_one(void *arg)
 // Второй поток
 void *thread_two(void *arg)
 {
-
   // Прием аргументов из главного потока
   (void) arg;
   // Инициализация пина PC9 на выход
   gpio_init(GPIO_PIN(PORT_C,9),GPIO_OUT);
   msg_init_queue(rcv_queue, 8);
+  //xtimer_ticks32_t last_wakeup_two = xtimer_now();
+  int per = 10;
+  msg_t msg;
   while(1){
     // Включаем светодиод
     if (msg_avail())
     {
-  	 gpio_set(GPIO_PIN(PORT_C,9));
-      // Задача засыпает на 333333 микросекунды
-   	  xtimer_usleep(333333);
-      // Выключаем светодиод
-      gpio_clear(GPIO_PIN(PORT_C,9));
-      // Задача снова засыпает на 333333 микросекунды
-      xtimer_usleep(333333);
+      msg_receive(&msg);
+      gpio_toggle(GPIO_PIN(PORT_C,9));
+      per = msg.content.value;
+      //xtimer_periodic_wakeup(&last_wakeup_two, per);
+      xtimer_sleep(per);
     }
-  }    
+    else 
+    {
+      gpio_toggle(GPIO_PIN(PORT_C,9));
+      // Поток засыпает на 100000 микросекунд
+      //xtimer_periodic_wakeup(&last_wakeup_two, per);
+      xtimer_sleep(per);
+    }
+    xtimer_usleep(600000); 
+  }
   return NULL;
 }
 
@@ -103,8 +118,7 @@ void *thread_two(void *arg)
 int main(void)
 {
   // Инициализация прерывания с кнопки (подробнее в примере 02button)
-	gpio_init_int(GPIO_PIN(PORT_A,0),GPIO_IN,GPIO_BOTH,btn_handler,NULL);
-
+  gpio_init_int(GPIO_PIN(PORT_A,0),GPIO_IN,GPIO_BOTH,btn_handler,NULL);
   // Создение потоков (подробнее в примере 03threads)
   // Для первого потока мы сохраняем себе то, что возвращает функция thread_create,
   // чтобы потом пользоваться этим как идентификатором потока для отправки ему сообщений
@@ -116,9 +130,7 @@ int main(void)
   thread_create(thread_two_stack, sizeof(thread_two_stack),
                   THREAD_PRIORITY_MAIN - 2, THREAD_CREATE_STACKTEST,
                   thread_two, NULL, "thread_two");
-
   while (1){
-
     }
 
     return 0;
