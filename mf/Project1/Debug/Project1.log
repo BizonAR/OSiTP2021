@@ -1,0 +1,7 @@
+﻿  
+  ��������� ��������� ������������ �������� Microsoft (R), ������ 14.28.29337.0
+  (C) ���������� ���������� (Microsoft Corporation).  ��� ����� ��������.
+  
+NMAKE : fatal error U1052: �� ������ ���� "Makefile-1"
+  Stop.
+C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\MSBuild\Microsoft\VC\v160\Microsoft.MakeFile.Targets(46,5): error MSB3073: выход из команды "nmake /f Makefile-1" с кодом 2.
